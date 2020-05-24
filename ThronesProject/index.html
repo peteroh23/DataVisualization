@@ -1,0 +1,263 @@
+<html>
+
+<head>
+    <h3> CS 3300 HW8, Junghwan Peter Oh (jo299)</h3>
+
+    <link href="https://fonts.googleapis.com/css?family=Lato:400,700|Raleway:400,700" rel="stylesheet">
+
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.14.2/styles/default.min.css">
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.14.2/highlight.min.js"></script>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://d3js.org/d3-array.v1.min.js"></script>
+    <script src="https://d3js.org/d3-path.v1.min.js"></script>
+    <script src="https://d3js.org/d3-chord.v1.min.js"></script>
+
+</head>
+
+<body>
+
+    <p id="problemMain"></p>
+    <svg id="svgMain" width="700" height="700" style="background: #fff; margin-top:50px">
+    </svg>
+
+    <script id="scriptMain">
+
+        const width = d3.select("#svgMain").attr("width");
+        const height = d3.select("#svgMain").attr("height");
+        const chordChart = d3.select("#svgMain").append("g");
+
+        const drawChord = async () => {
+
+            // load dataset
+
+            const data = await d3.json("/thrones-cooccur.json");
+
+            console.log(data);
+
+            let nodes = data.nodes;
+            let links = data.edges;
+
+            let nodesDict = {};
+
+            let counter = 0;
+
+            nodes.forEach(d => {
+                if (!(d.Name in nodesDict)) {
+                    nodesDict[d.Name] = counter;
+                    counter++;
+                }
+            });
+
+            console.log(nodesDict);
+
+            let matrix = [];
+
+            for (let i = 0; i < nodes.length; i++) {
+                let row = [];
+                for (let j = 0; j < nodes.length; j++) {
+                    row.push(0);
+                }
+                matrix.push(row);
+            }
+
+            // initially, a matrix of zeros
+            console.log(matrix);
+
+            links.forEach(d => {
+
+                // we can change this value if we want less data
+                if (d.weight > 1) {
+
+                    // Thankfully, the links already use node index for their source and target
+                    // As edges are bidirectional, we'll fill in two cells of the matrix for each one
+                    let temp = d.weight;
+
+                    matrix[nodesDict[d.source]][nodesDict[d.target]] = temp;
+                    matrix[nodesDict[d.target]][nodesDict[d.source]] = temp;
+
+                }
+            });
+
+            // matrix now includes weight from links
+            console.log(matrix);
+
+            let radius = 180;
+
+            let chordGen = d3.chord()
+                .padAngle(.04)
+                .sortSubgroups(d3.descending)
+                .sortChords(d3.descending)
+
+            let arcGen = d3.arc()
+                .innerRadius(radius)
+                .outerRadius(radius + 20)
+
+            let ribbonGen = d3.ribbon()
+                .radius(radius)
+
+            let chords = chordGen(matrix);
+            console.log(chords);
+
+            chordChart.attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+
+            let colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+            let ring = chordChart.append("g")
+                .selectAll("g")
+                .data(chords.groups)
+                .join("g");
+
+            // this is the ring segment
+            ring.append("path")
+                .attr("fill", d => colorScale(nodes[d.index].Affiliation))
+                .attr("stroke", d => colorScale(nodes[d.index].Affiliation))
+                .attr("d", arcGen)
+                .attr("class", d => "segment " + (d.index))
+
+            let ribbons = chordChart.append("g")
+                .selectAll("path")
+                .data(chords)
+                .join("path")
+                .attr("opacity", 0.7)
+                .attr("stroke", "none")
+                .attr("fill", d => colorScale(nodes[d.source.index].Affiliation))
+                .attr("d", ribbonGen)
+                .attr("class", d => "ribbon " + (d.source.index) + " " + (d.target.index))
+
+
+            chords.groups.forEach(d => {
+                let transform = '';
+                // find midpoint, convert to degrees
+                let midpoint = (d.startAngle + d.endAngle) / 2;
+                let rotation = (midpoint) * (180 / Math.PI) - 90;
+                transform = transform + "rotate(" + rotation + ") ";
+                transform = transform + "translate(" + (radius + 25) + ",0) ";
+                if (rotation > 90) {
+                    transform = transform + "rotate(180)";
+                    // Notice text anchor issue
+                    d.anchor = "end";
+                }
+                d.trans = transform;
+            });
+
+            ring.append("text")
+                .attr("transform", d => d.trans)
+                .text(d => nodes[d.index].Name)
+                .attr("text-anchor", d => d.anchor)
+                .attr("class", d => d.index)
+                .attr("id", d => d.index)
+
+
+            // d3.selectAll("text")
+            //     .on('mouseover', function (d) {
+            //         console.log(this.id)
+            //         d3.select(this)
+            //             .attr("fill", "red")
+            //             .attr("font-size", 25);
+
+            //     })
+            //     .on('mouseout', function (d) {
+            //         d3.select(this)
+            //             .attr("fill", "black")
+            //             .attr("font-size", 15);
+            //     });
+
+            d3.selectAll("path")
+                .on('mouseover', function (d) {
+                    d3.select(this)
+                        .attr("stroke", "black")
+                        .attr("stroke-width", 1.2)
+                        .attr("opacity", 1)
+
+                })
+                .on('mouseout', function (d) {
+                    d3.select(this)
+                        .attr("stroke", "none")
+                        .attr("opacity", 0.7)
+
+                });
+
+
+            d3.selectAll("text")
+                .on('mouseover', function (d) {
+                    d3.select(this)
+                        .attr("fill", "red")
+                        .attr("font-size", 25);
+
+                    d3.selectAll(".ribbon")
+                        .attr("opacity", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return 1.0; }
+                            else { return 0.3; }
+                        })
+                        .attr("stroke", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return "black"; }
+                            else { return "none"; }
+                        });
+
+                    d3.selectAll(".segment")
+                        .attr("stroke", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return "black"; }
+                            else { return "none"; }
+                        });
+
+
+                })
+
+                .on('mouseout', function (d) {
+                    d3.select(this)
+                        .attr("fill", "black")
+                        .attr("font-size", 15);
+                    d3.selectAll(".ribbon").attr("opacity", 0.7);
+                    d3.selectAll(".ribbon").attr("stroke", "none");
+                    d3.selectAll(".segment").attr("stroke", "none");
+
+                });
+
+
+            d3.selectAll(".segment")
+                .on('mouseover', function (d) {
+                    d3.select(this)
+                        .attr("stroke", "black");
+
+                    d3.selectAll(".ribbon")
+                        .attr("opacity", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return 1.0; }
+                            else { return 0.3; }
+                        })
+                        .attr("stroke", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return "black"; }
+                            else { return "none"; }
+                        });
+
+                    d3.selectAll("text")
+                        .attr("fill", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return "red"; }
+                            else { return "black"; }
+                        })
+                        .attr("font-size", function () {
+                            if (d3.select(this).classed(d.index.toString())) { return 25; }
+                            else { return 15; }
+                        });
+
+
+                })
+
+                .on('mouseout', function (d) {
+                    d3.select(this)
+                        .attr("stroke", "none")
+                    d3.selectAll(".ribbon").attr("opacity", 0.7);
+                    d3.selectAll(".ribbon").attr("stroke", "none");
+                    d3.selectAll("text").attr("fill", "black");
+                    d3.selectAll("text").attr("font-size", 15);
+
+                });
+
+
+        }
+        drawChord();
+
+    </script>
+
+</body>
+
+</html>
